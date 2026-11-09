@@ -3752,4 +3752,79 @@ void main() {
       expect(gameBoard.height, greaterThanOrEqualTo(240.0));
     },
   );
+
+  testWidgets(
+    'can change Maia rating directly from the analysis board',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final requestedRatings = <int>[];
+      int? changedElo;
+      Future<List<double>> policyFor(List<String> _, int elo) async {
+        requestedRatings.add(elo);
+        final policy = List<double>.filled(4352, -20);
+        policy[MaiaEncoding.moveIndex('e2e4', false)] = 20;
+        return policy;
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appTheme(const AppAppearance(), Brightness.dark),
+          home: ReviewPage(
+            positions: const [chess.Chess.DEFAULT_POSITION],
+            uciMoves: const [],
+            sanMoves: const [],
+            playerIsWhite: true,
+            pgn: '*',
+            onHome: () {},
+            maiaElo: 1500,
+            onMaiaEloChanged: (elo) => changedElo = elo,
+            evaluator: (_) async => const StockfishReview(20, 'a2a3'),
+            maiaPolicyEvaluator: policyFor,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(requestedRatings, contains(1500));
+      final badge = find.byKey(const ValueKey('maia-elo-badge'));
+      expect(badge, findsOneWidget);
+      expect(find.descendant(of: badge, matching: find.text('M1500')), findsOneWidget);
+
+      // 1. Change via rating badge
+      await tester.tap(badge);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('analysis-rating-slider')), findsOneWidget);
+      final chip1900 = find.byKey(const ValueKey('rating-chip-1900'));
+      expect(chip1900, findsOneWidget);
+      await tester.tap(chip1900);
+      await tester.pumpAndSettle();
+
+      expect(changedElo, 1900);
+      expect(find.descendant(of: badge, matching: find.text('M1900')), findsOneWidget);
+      expect(requestedRatings, contains(1900));
+
+      // 2. Change via Analysis Actions Menu
+      final menuButton = find.byKey(const ValueKey('analysis-actions-menu'));
+      await tester.tap(menuButton);
+      await tester.pumpAndSettle();
+
+      final menuMaiaElo = find.byKey(const ValueKey('analysis-menu-maia-elo'));
+      expect(menuMaiaElo, findsOneWidget);
+      await tester.tap(menuMaiaElo);
+      await tester.pumpAndSettle();
+
+      final chip1100 = find.byKey(const ValueKey('rating-chip-1100'));
+      expect(chip1100, findsOneWidget);
+      await tester.tap(chip1100);
+      await tester.pumpAndSettle();
+
+      expect(changedElo, 1100);
+      expect(find.descendant(of: badge, matching: find.text('M1100')), findsOneWidget);
+      expect(requestedRatings, contains(1100));
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getInt('analysisElo'), 1100);
+    },
+  );
 }

@@ -109,6 +109,8 @@ class ReviewPage extends StatefulWidget {
     this.initialTreeIsAuthoritative = false,
     this.maiaElo = defaultMaiaAnalysisElo,
     this.secondMaiaElo,
+    this.onMaiaEloChanged,
+    this.onSecondMaiaEloChanged,
     this.useMoveHistory = false,
     this.historyPrefix = const [],
     this.onPlayFromHistory,
@@ -144,6 +146,8 @@ class ReviewPage extends StatefulWidget {
   final bool initialTreeIsAuthoritative;
   final int maiaElo;
   final int? secondMaiaElo;
+  final ValueChanged<int>? onMaiaEloChanged;
+  final ValueChanged<int?>? onSecondMaiaEloChanged;
   final bool useMoveHistory;
   final List<String> historyPrefix;
   final Future<void> Function(String fen, List<String> positions)?
@@ -192,6 +196,8 @@ class _ReviewPageState extends State<ReviewPage>
   bool _showGraph = false;
   bool _engineEnabled = true;
   late AnalysisEngineMode _engineMode;
+  late int _maiaElo;
+  late int? _secondMaiaElo;
   final Map<int, StockfishReview> _reviews = {};
   final Set<int> _loading = {};
   final Map<int, Future<void>> _pendingAnalyses = {};
@@ -505,6 +511,8 @@ class _ReviewPageState extends State<ReviewPage>
     _boardPosition = dc.Chess.fromSetup(dc.Setup.parseFen(widget.positions[0]));
     _boardController = cg.ChessboardController(game: _boardGameData());
     _engineMode = widget.initialEngineMode ?? AnalysisEngineMode.both;
+    _maiaElo = widget.maiaElo;
+    _secondMaiaElo = widget.secondMaiaElo;
     unawaited(_loadEngineMode());
     final initialFen = widget.initialCurrentFen;
     if (initialFen != null) {
@@ -525,25 +533,54 @@ class _ReviewPageState extends State<ReviewPage>
         oldWidget.secondMaiaElo != widget.secondMaiaElo ||
         !listEquals(oldWidget.positions, widget.positions) ||
         !listEquals(oldWidget.historyPrefix, widget.historyPrefix)) {
-      _maiaContextGeneration++;
-      _maiaInferenceScope.invalidate();
-      _secondMaiaInferenceScope.invalidate();
-      _maiaAnalyses.clear();
-      _secondMaiaAnalyses.clear();
-      _maiaLoading.clear();
-      _secondMaiaLoading.clear();
-      _variationMaiaCache.clear();
-      _secondVariationMaiaCache.clear();
-      _pendingVariationMaia.clear();
-      _pendingSecondVariationMaia.clear();
-      _variationMaiaAnalysis = null;
-      _secondVariationMaiaAnalysis = null;
-      if (_inVariation) {
-        unawaited(_analyzeVariation());
-      } else {
-        unawaited(_analyzeConfiguredMaiaPosition(_ply));
+      if (oldWidget.maiaElo != widget.maiaElo) {
+        _maiaElo = widget.maiaElo;
       }
+      if (oldWidget.secondMaiaElo != widget.secondMaiaElo) {
+        _secondMaiaElo = widget.secondMaiaElo;
+      }
+      _invalidateAndReanalyzeMaia();
     }
+  }
+
+  void _invalidateAndReanalyzeMaia() {
+    _maiaContextGeneration++;
+    _maiaInferenceScope.invalidate();
+    _secondMaiaInferenceScope.invalidate();
+    _maiaAnalyses.clear();
+    _secondMaiaAnalyses.clear();
+    _maiaLoading.clear();
+    _secondMaiaLoading.clear();
+    _variationMaiaCache.clear();
+    _secondVariationMaiaCache.clear();
+    _pendingVariationMaia.clear();
+    _pendingSecondVariationMaia.clear();
+    _variationMaiaAnalysis = null;
+    _secondVariationMaiaAnalysis = null;
+    if (_inVariation) {
+      unawaited(_analyzeVariation());
+    } else {
+      unawaited(_analyzeConfiguredMaiaPosition(_ply));
+    }
+  }
+
+  Future<void> _setMaiaElo(int newElo, {bool secondary = false}) async {
+    final normalized = normalizeMaiaRating(newElo);
+    if (secondary) {
+      if (_secondMaiaElo == normalized) return;
+      setState(() => _secondMaiaElo = normalized);
+      widget.onSecondMaiaEloChanged?.call(normalized);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('secondMaiaElo', normalized);
+    } else {
+      if (_maiaElo == normalized) return;
+      setState(() => _maiaElo = normalized);
+      widget.onMaiaEloChanged?.call(normalized);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('analysisElo', normalized);
+    }
+    _invalidateAndReanalyzeMaia();
+    _notifySessionChanged();
   }
 
   void _notifySessionChanged() {
@@ -845,8 +882,8 @@ class _ReviewPageState extends State<ReviewPage>
   Future<void> _analyzeConfiguredMaiaPosition(int ply) async {
     if (!_engineEnabled || !_foreground || !_engineMode.includesMaia) return;
     await Future.wait([
-      _analyzeMaiaPosition(ply, elo: widget.maiaElo, secondary: false),
-      if (widget.secondMaiaElo case final elo?)
+      _analyzeMaiaPosition(ply, elo: _maiaElo, secondary: false),
+      if (_secondMaiaElo case final elo?)
         _analyzeMaiaPosition(ply, elo: elo, secondary: true),
     ]);
   }
@@ -1181,8 +1218,8 @@ class _ReviewPageState extends State<ReviewPage>
     final history = _variationHistory();
     final historyKey = _variationHistoryKey(history);
     final generation = _maiaContextGeneration;
-    final primaryKey = '${widget.maiaElo}\n$historyKey';
-    final secondElo = widget.secondMaiaElo;
+    final primaryKey = '$_maiaElo\n$historyKey';
+    final secondElo = _secondMaiaElo;
     final secondKey = secondElo == null ? null : '$secondElo\n$historyKey';
     final cachedReview = _engineMode.includesStockfish
         ? _variationReviewCache[fen]
@@ -1235,7 +1272,7 @@ class _ReviewPageState extends State<ReviewPage>
     }
     await Future.wait([
       if (cachedMaia == null)
-        _analyzeVariationMaia(history, fen, widget.maiaElo, secondary: false),
+        _analyzeVariationMaia(history, fen, _maiaElo, secondary: false),
       if (secondElo != null && cachedSecondMaia == null)
         _analyzeVariationMaia(history, fen, secondElo, secondary: true),
     ]);
@@ -2027,7 +2064,7 @@ class _ReviewPageState extends State<ReviewPage>
           ?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
 
   double get _engineLabelWidth =>
-      max(64, MediaQuery.textScalerOf(context).scale(56));
+      max(72, MediaQuery.textScalerOf(context).scale(68));
 
   Widget _engineLabel(String label, Color color) => SizedBox(
     width: _engineLabelWidth,
@@ -2041,6 +2078,166 @@ class _ReviewPageState extends State<ReviewPage>
       ),
     ),
   );
+
+  Widget _maiaEloBadge({
+    required int elo,
+    required Color color,
+    required bool secondary,
+  }) {
+    final historyTip = widget.useMoveHistory
+        ? l10n(context).maiaHistoryOn
+        : l10n(context).maiaHistoryOff;
+    final ratingTip = secondary
+        ? l10n(context).secondAnalysisRatingValue(displayNumber(context, elo))
+        : l10n(context).analysisRatingValue(displayNumber(context, elo));
+    return Tooltip(
+      message: '$ratingTip • $historyTip',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey(secondary ? 'second-maia-elo-badge' : 'maia-elo-badge'),
+          borderRadius: BorderRadius.circular(4),
+          onTap: () => _showRatingSelectionDialog(secondary: secondary),
+          child: Container(
+            height: 24,
+            constraints: BoxConstraints(minWidth: _engineLabelWidth),
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: color.withValues(alpha: 0.35),
+                width: 1,
+              ),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'M$elo',
+                  maxLines: 1,
+                  style: _engineLineTextStyle?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_drop_down,
+                  size: 14,
+                  color: color.withValues(alpha: 0.8),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showRatingSelectionDialog({bool secondary = false}) async {
+    final initialElo =
+        secondary ? (_secondMaiaElo ?? defaultMaiaAnalysisElo) : _maiaElo;
+    var currentRating = initialElo;
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        secondary
+                            ? l10n(context).secondAnalysisRatingValue(
+                                displayNumber(context, currentRating),
+                              )
+                            : l10n(context).analysisRatingValue(
+                                displayNumber(context, currentRating),
+                              ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        'M$currentRating',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Slider(
+                  key: const ValueKey('analysis-rating-slider'),
+                  min: maiaMinimumRating.toDouble(),
+                  max: maiaMaximumRating.toDouble(),
+                  divisions: maiaRatingDivisions,
+                  value: currentRating.toDouble(),
+                  label: displayNumber(context, currentRating),
+                  onChanged: (val) {
+                    setSheetState(() => currentRating = val.round());
+                  },
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final elo in const [1100, 1300, 1500, 1700, 1900])
+                      ChoiceChip(
+                        key: ValueKey('rating-chip-$elo'),
+                        label: Text('M$elo'),
+                        selected: currentRating == elo,
+                        onSelected: (selected) {
+                          if (selected) {
+                            Navigator.pop(sheetContext, elo);
+                          }
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  key: const ValueKey('confirm-rating-button'),
+                  onPressed: () => Navigator.pop(sheetContext, currentRating),
+                  child: Text(l10n(context).done),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    final chosen =
+        selected ?? (currentRating != initialElo ? currentRating : null);
+    if (chosen != null && mounted) {
+      await _setMaiaElo(chosen, secondary: secondary);
+    }
+  }
 
   Future<void> _showMaiaProbabilities(
     MaiaPositionAnalysis analysis,
@@ -2114,6 +2311,7 @@ class _ReviewPageState extends State<ReviewPage>
     required Color color,
     required Key lineKey,
     required Key otherKey,
+    required bool secondary,
   }) {
     final shown = analysis.moves.take(3).toList(growable: false);
     final shownMass = shown.fold<double>(
@@ -2151,11 +2349,10 @@ class _ReviewPageState extends State<ReviewPage>
               child: Align(
                 alignment: Alignment.centerRight,
                 widthFactor: 1,
-                child: Tooltip(
-                  message: widget.useMoveHistory
-                      ? l10n(context).maiaHistoryOn
-                      : l10n(context).maiaHistoryOff,
-                  child: _engineLabel('M$elo', color),
+                child: _maiaEloBadge(
+                  elo: elo,
+                  color: color,
+                  secondary: secondary,
                 ),
               ),
             ),
@@ -2251,13 +2448,14 @@ class _ReviewPageState extends State<ReviewPage>
       required Color color,
       required String text,
       Key? key,
+      Widget? customLabel,
     }) => SizedBox(
       key: key,
       height: max(26, MediaQuery.textScalerOf(context).scale(16) * 1.375),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          _engineLabel(label, color),
+          customLabel ?? _engineLabel(label, color),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -2278,6 +2476,7 @@ class _ReviewPageState extends State<ReviewPage>
       required Color color,
       required Key lineKey,
       required Key otherKey,
+      required bool secondary,
     }) => analysis?.hasRawProbabilities == true
         ? _maiaProbabilityRow(
             analysis!,
@@ -2286,10 +2485,16 @@ class _ReviewPageState extends State<ReviewPage>
             color: color,
             lineKey: lineKey,
             otherKey: otherKey,
+            secondary: secondary,
           )
         : engineRow(
             key: lineKey,
             label: 'M$elo',
+            customLabel: _maiaEloBadge(
+              elo: elo,
+              color: color,
+              secondary: secondary,
+            ),
             color: color,
             text: move == null
                 ? loading
@@ -2333,12 +2538,13 @@ class _ReviewPageState extends State<ReviewPage>
                 analysis: maiaAnalysis,
                 move: maiaMove,
                 loading: maiaLoading,
-                elo: widget.maiaElo,
+                elo: _maiaElo,
                 color: chessTextColor(context, primaryMaiaAnalysisColor),
                 lineKey: const ValueKey('maia-engine-line'),
                 otherKey: const ValueKey('maia-other'),
+                secondary: false,
               ),
-              if (widget.secondMaiaElo case final elo?)
+              if (_secondMaiaElo case final elo?)
                 maiaRow(
                   analysis: secondMaiaAnalysis,
                   move: secondMaiaMove,
@@ -2347,6 +2553,7 @@ class _ReviewPageState extends State<ReviewPage>
                   color: chessTextColor(context, secondaryMaiaAnalysisColor),
                   lineKey: const ValueKey('second-maia-engine-line'),
                   otherKey: const ValueKey('second-maia-other'),
+                  secondary: true,
                 ),
             ],
           ],
@@ -2410,12 +2617,12 @@ class _ReviewPageState extends State<ReviewPage>
     );
     final rows = [
       (
-        elo: widget.maiaElo,
+        elo: _maiaElo,
         score: primary,
         color: primaryMaiaAnalysisColor,
         key: 'maia-score-primary',
       ),
-      if (widget.secondMaiaElo case final elo?)
+      if (_secondMaiaElo case final elo?)
         (
           elo: elo,
           score: secondary,
@@ -3101,6 +3308,40 @@ class _ReviewPageState extends State<ReviewPage>
                     }
                   },
                 ),
+              if (_engineMode.includesMaia) ...[
+                const Divider(),
+                ListTile(
+                  key: const ValueKey('engine-dialog-maia-elo'),
+                  leading: const Icon(Icons.speed_outlined),
+                  title: Text(l10n(context).maiaAnalysisRating),
+                  trailing: Text(
+                    'M${displayNumber(context, _maiaElo)}',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    unawaited(_showRatingSelectionDialog(secondary: false));
+                  },
+                ),
+                if (_secondMaiaElo case final secondElo?)
+                  ListTile(
+                    key: const ValueKey('engine-dialog-second-maia-elo'),
+                    leading: const Icon(Icons.speed_outlined),
+                    title: Text(l10n(context).secondMaiaAnalysisRating),
+                    trailing: Text(
+                      'M${displayNumber(context, secondElo)}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      unawaited(_showRatingSelectionDialog(secondary: true));
+                    },
+                  ),
+              ],
             ],
           ),
         ),
@@ -3205,6 +3446,23 @@ class _ReviewPageState extends State<ReviewPage>
                 subtitle: Text(_engineMode.label),
                 onTap: () => Navigator.pop(context, 'engines'),
               ),
+              if (_engineMode.includesMaia) ...[
+                ListTile(
+                  key: const ValueKey('analysis-menu-maia-elo'),
+                  leading: const Icon(Icons.speed_outlined),
+                  title: Text(l10n(context).maiaAnalysisRating),
+                  subtitle: Text('M${displayNumber(context, _maiaElo)}'),
+                  onTap: () => Navigator.pop(context, 'maia-elo'),
+                ),
+                if (_secondMaiaElo case final secondElo?)
+                  ListTile(
+                    key: const ValueKey('analysis-menu-second-maia-elo'),
+                    leading: const Icon(Icons.speed_outlined),
+                    title: Text(l10n(context).secondMaiaAnalysisRating),
+                    subtitle: Text('M${displayNumber(context, secondElo)}'),
+                    onTap: () => Navigator.pop(context, 'second-maia-elo'),
+                  ),
+              ],
             ],
           ),
         ),
@@ -3214,6 +3472,10 @@ class _ReviewPageState extends State<ReviewPage>
     switch (action) {
       case 'engines':
         await _showEngineSelectionDialog();
+      case 'maia-elo':
+        await _showRatingSelectionDialog(secondary: false);
+      case 'second-maia-elo':
+        await _showRatingSelectionDialog(secondary: true);
       case 'fen':
         await widget.onLoadFen?.call();
       case 'pgn':
@@ -3608,7 +3870,7 @@ class _ReviewPageState extends State<ReviewPage>
             final textScale = MediaQuery.textScalerOf(context).scale(16) / 16;
             final boardGutter =
                 max(24.0, MediaQuery.textScalerOf(context).scale(24)) + 8;
-            final maiaRowCount = widget.secondMaiaElo == null ? 1 : 2;
+            final maiaRowCount = _secondMaiaElo == null ? 1 : 2;
             final engineHeight = _engineEnabled
                 ? (_engineMode.includesStockfish ? 2 : 0) *
                           max(26.0, 22.0 * textScale) +

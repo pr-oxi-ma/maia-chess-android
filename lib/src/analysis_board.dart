@@ -578,6 +578,8 @@ class _AnalysisBoardPageState extends State<AnalysisBoardPage> {
   late List<RecordedVariation> _initialVariations = widget.initialVariations;
   late String? _initialCurrentFen = widget.initialCurrentFen;
   late bool _initialFlipped = widget.initialFlipped;
+  late int _maiaElo = widget.maiaElo;
+  late int? _secondMaiaElo = widget.secondMaiaElo;
   int _revision = 0;
 
   @override
@@ -606,10 +608,10 @@ class _AnalysisBoardPageState extends State<AnalysisBoardPage> {
     'variations': variations.map((item) => item.toJson()).toList(),
     'currentFen': currentFen,
     'flipped': flipped,
-    'maiaElo': widget.maiaElo,
+    'maiaElo': _maiaElo,
     'maiaUseMoveHistory': widget.useMoveHistory,
     'historyPrefix': _revision == 0 ? widget.historyPrefix : const <String>[],
-    if (widget.secondMaiaElo != null) 'secondMaiaElo': widget.secondMaiaElo,
+    if (_secondMaiaElo != null) 'secondMaiaElo': _secondMaiaElo,
   });
 
   void _replace(AnalysisSession session) {
@@ -795,8 +797,28 @@ class _AnalysisBoardPageState extends State<AnalysisBoardPage> {
     initialEngineMode: widget.initialEngineMode,
     gameAnalysisQuality: widget.gameAnalysisQuality,
     onSessionChanged: _saveAnalysisState,
-    maiaElo: widget.maiaElo,
-    secondMaiaElo: widget.secondMaiaElo,
+    maiaElo: _maiaElo,
+    secondMaiaElo: _secondMaiaElo,
+    onMaiaEloChanged: (elo) {
+      setState(() => _maiaElo = elo);
+      unawaited(
+        _saveAnalysisState(
+          _initialCurrentFen ?? _session.positions.first,
+          _initialFlipped,
+          _initialVariations,
+        ),
+      );
+    },
+    onSecondMaiaEloChanged: (elo) {
+      setState(() => _secondMaiaElo = elo);
+      unawaited(
+        _saveAnalysisState(
+          _initialCurrentFen ?? _session.positions.first,
+          _initialFlipped,
+          _initialVariations,
+        ),
+      );
+    },
     useMoveHistory: widget.useMoveHistory,
     historyPrefix: _revision == 0 ? widget.historyPrefix : const [],
     evaluator: widget.evaluator,
