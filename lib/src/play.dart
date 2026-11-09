@@ -4494,9 +4494,9 @@ class _GamePageState extends State<GamePage>
                     (_chessnutGameActive ? _chessnutBannerHeight + 6 : 0),
               ),
             );
-            final useScrollableLayout = availableBoardSize <= 80;
+            final useScrollableLayout = availableBoardSize < 220;
             final boardSize = useScrollableLayout
-                ? min(contentWidth, 81.0)
+                ? min(contentWidth, 560.0)
                 : availableBoardSize;
             Widget portraitContent() => Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

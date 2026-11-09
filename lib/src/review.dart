@@ -3737,10 +3737,16 @@ class _ReviewPageState extends State<ReviewPage>
               );
             }
             final width = min(constraints.maxWidth, 600.0);
-            final size = min(
-              width - boardGutter,
-              max(80.0, constraints.maxHeight - engineHeight - 220),
+            final maxBoardWidth = width - boardGutter;
+            final minDetailsHeight = max(
+              88.0,
+              48.0 + (_engineEnabled ? 36.0 : 0.0),
             );
+            final boardFromMin = constraints.maxHeight - minDetailsHeight;
+            final size = min(
+              maxBoardWidth,
+              boardFromMin,
+            ).clamp(80.0, 560.0);
             return Center(
               child: SizedBox(
                 width: width,

@@ -3669,4 +3669,87 @@ void main() {
       expect(find.byKey(const ValueKey('maia-engine-line')), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'split screen and floating window layout preserves a playable board size',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      // Split-screen test: 392 x 380 (top half of screen)
+      tester.view.physicalSize = const Size(392, 380);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReviewPage(
+            positions: const [chess.Chess.DEFAULT_POSITION],
+            uciMoves: const [],
+            sanMoves: const [],
+            playerIsWhite: true,
+            pgn: '*',
+            onHome: () {},
+            evaluator: (_) async => const StockfishReview(20, 'e2e4'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final splitBoard = tester.getSize(find.byType(cg.Chessboard));
+      expect(splitBoard.width, greaterThanOrEqualTo(220.0));
+      expect(splitBoard.height, greaterThanOrEqualTo(220.0));
+      expect(
+        find.byKey(const ValueKey('previous-move-button')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('next-move-button')).hitTestable(),
+        findsOneWidget,
+      );
+
+      // Floating window test: 300 x 480
+      tester.view.physicalSize = const Size(300, 480);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReviewPage(
+            positions: const [chess.Chess.DEFAULT_POSITION],
+            uciMoves: const [],
+            sanMoves: const [],
+            playerIsWhite: true,
+            pgn: '*',
+            onHome: () {},
+            evaluator: (_) async => const StockfishReview(20, 'e2e4'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final floatingBoard = tester.getSize(find.byType(cg.Chessboard));
+      expect(floatingBoard.width, greaterThanOrEqualTo(240.0));
+      expect(floatingBoard.height, greaterThanOrEqualTo(240.0));
+      expect(
+        find.byKey(const ValueKey('previous-move-button')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('next-move-button')).hitTestable(),
+        findsOneWidget,
+      );
+
+      // Play mode in split-screen: 392 x 380
+      tester.view.physicalSize = const Size(392, 380);
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MaiaChessApp());
+      await tester.pumpAndSettle();
+      final start = find.text('Start game');
+      await tester.ensureVisible(start);
+      await tester.tap(start);
+      await tester.pumpAndSettle();
+
+      final gameBoard = tester.getSize(
+        find.byKey(const ValueKey('game-board')),
+      );
+      expect(gameBoard.width, greaterThanOrEqualTo(240.0));
+      expect(gameBoard.height, greaterThanOrEqualTo(240.0));
+    },
+  );
 }
