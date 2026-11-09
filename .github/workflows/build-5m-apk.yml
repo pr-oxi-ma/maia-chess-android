@@ -93,6 +93,12 @@ jobs:
 
           This build replaces the heavy 316 MB 79M model with the ~21 MB **Maia-3 5M** model, dramatically reducing the download size for mobile devices.
 
+          #### Features & Enhancements:
+          - **Lightweight 5M Neural Network**: Replaced 79M (~316 MB) with 5M (~21 MB) model for compact installation.
+          - **Selectable Analysis Engine**: Choose between **Both (Stockfish & Maia)**, **Maia only**, or **Stockfish only** in Analysis Board & Game Review.
+          - **On-the-fly Maia Elo Selector**: Change Maia analysis rating directly from the Analysis Board via the interactive rating badge (\`M\$elo ▾\`), Analysis Menu, or Engine Settings.
+          - **Split-Screen & Floating-Window Support**: Optimized responsive layout ensuring the chessboard stays large, clear, and playable when multitasking.
+
           #### Available APKs:
           - **[Mobile-Maia-5M-arm64-v8a.apk](https://github.com/${{ github.repository }}/releases/download/v2.5.1-5m-light/Mobile-Maia-5M-arm64-v8a.apk)**: Recommended for almost all modern Android phones (~78 MB).
           - **[Mobile-Maia-5M-armeabi-v7a.apk](https://github.com/${{ github.repository }}/releases/download/v2.5.1-5m-light/Mobile-Maia-5M-armeabi-v7a.apk)**: For older 32-bit ARM phones (~70 MB).
