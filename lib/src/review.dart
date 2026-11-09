@@ -129,6 +129,7 @@ class ReviewPage extends StatefulWidget {
     this.onPlayFromPosition,
     this.initialCurrentFen,
     this.initialFlipped = false,
+    this.initialEngineMode,
     this.gameAnalysisQuality = GameAnalysisQuality.fast,
     this.onSessionChanged,
     super.key,
@@ -169,6 +170,7 @@ class ReviewPage extends StatefulWidget {
   final Future<void> Function(String fen)? onPlayFromPosition;
   final String? initialCurrentFen;
   final bool initialFlipped;
+  final AnalysisEngineMode? initialEngineMode;
   final GameAnalysisQuality gameAnalysisQuality;
   final Future<void> Function(
     String currentFen,
@@ -189,6 +191,7 @@ class _ReviewPageState extends State<ReviewPage>
   int _ply = 0;
   bool _showGraph = false;
   bool _engineEnabled = true;
+  late AnalysisEngineMode _engineMode;
   final Map<int, StockfishReview> _reviews = {};
   final Set<int> _loading = {};
   final Map<int, Future<void>> _pendingAnalyses = {};
@@ -320,16 +323,22 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   Future<StockfishReview> _evaluateSelected(String fen) {
-    if (!_foreground || !_engineEnabled) throw const AnalysisCancelled();
+    if (!_foreground || !_engineEnabled || !_engineMode.includesStockfish) {
+      throw const AnalysisCancelled();
+    }
     return widget.evaluator?.call(fen) ??
         _stockfish.evaluate(fen, scope: _stockfishScope);
   }
 
   void _refineSelected(String fen) {
-    if (widget.evaluator != null) return;
+    if (widget.evaluator != null || !_engineMode.includesStockfish) return;
     _refinementTimer?.cancel();
     _refinementTimer = Timer(const Duration(milliseconds: 500), () async {
-      if (!mounted || !_foreground || !_engineEnabled || _currentFen != fen) {
+      if (!mounted ||
+          !_foreground ||
+          !_engineEnabled ||
+          !_engineMode.includesStockfish ||
+          _currentFen != fen) {
         return;
       }
       try {
@@ -338,7 +347,11 @@ class _ReviewPageState extends State<ReviewPage>
           scope: _stockfishScope,
           background: true,
         );
-        if (!mounted || !_foreground || !_engineEnabled || _currentFen != fen) {
+        if (!mounted ||
+            !_foreground ||
+            !_engineEnabled ||
+            !_engineMode.includesStockfish ||
+            _currentFen != fen) {
           return;
         }
         setState(() {
@@ -491,6 +504,8 @@ class _ReviewPageState extends State<ReviewPage>
     }
     _boardPosition = dc.Chess.fromSetup(dc.Setup.parseFen(widget.positions[0]));
     _boardController = cg.ChessboardController(game: _boardGameData());
+    _engineMode = widget.initialEngineMode ?? AnalysisEngineMode.both;
+    unawaited(_loadEngineMode());
     final initialFen = widget.initialCurrentFen;
     if (initialFen != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -828,6 +843,7 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   Future<void> _analyzeConfiguredMaiaPosition(int ply) async {
+    if (!_engineEnabled || !_foreground || !_engineMode.includesMaia) return;
     await Future.wait([
       _analyzeMaiaPosition(ply, elo: widget.maiaElo, secondary: false),
       if (widget.secondMaiaElo case final elo?)
@@ -840,7 +856,7 @@ class _ReviewPageState extends State<ReviewPage>
     required int elo,
     required bool secondary,
   }) async {
-    if (!_engineEnabled || !_foreground) return;
+    if (!_engineEnabled || !_foreground || !_engineMode.includesMaia) return;
     if (chess.Chess.fromFEN(widget.positions[ply]).game_over) return;
     // Widget tests commonly inject only Stockfish. Do not invoke the native
     // Maia channel in that case unless a Maia test double was also supplied.
@@ -1110,6 +1126,7 @@ class _ReviewPageState extends State<ReviewPage>
     bool current() =>
         mounted &&
         _inVariation &&
+        _engineMode.includesMaia &&
         fen == _currentFen &&
         generation == _maiaContextGeneration &&
         historyKey == _variationHistoryKey(_variationHistory());
@@ -1167,42 +1184,49 @@ class _ReviewPageState extends State<ReviewPage>
     final primaryKey = '${widget.maiaElo}\n$historyKey';
     final secondElo = widget.secondMaiaElo;
     final secondKey = secondElo == null ? null : '$secondElo\n$historyKey';
-    final cachedReview = _variationReviewCache[fen];
-    final cachedMaia = _variationMaiaCache[primaryKey];
-    final cachedSecondMaia = secondKey == null
+    final cachedReview = _engineMode.includesStockfish
+        ? _variationReviewCache[fen]
+        : null;
+    final cachedMaia = _engineMode.includesMaia
+        ? _variationMaiaCache[primaryKey]
+        : null;
+    final cachedSecondMaia = secondKey == null || !_engineMode.includesMaia
         ? null
         : _secondVariationMaiaCache[secondKey];
     setState(() {
       _variationReview = cachedReview;
       _variationMaiaAnalysis = cachedMaia;
       _secondVariationMaiaAnalysis = cachedSecondMaia;
-      _variationLoading = cachedReview == null;
+      _variationLoading = _engineMode.includesStockfish && cachedReview == null;
       _variationMaiaLoading = false;
       _secondVariationMaiaLoading = false;
       _variationError = null;
     });
-    try {
-      final review = cachedReview ?? await _stockfishForVariation(fen);
-      if (!mounted || fen != _currentFen) return;
-      setState(() => _variationReview = review);
-      _refineSelected(fen);
-    } on AnalysisCancelled {
-      return;
-    } catch (error, stackTrace) {
-      if (mounted && fen == _currentFen) {
-        setState(() => _variationError = _ReviewAnalysisStatus.failed);
-      }
-      unawaited(
-        AppDiagnostics.record('stockfish-variation', error, stackTrace),
-      );
-    } finally {
-      if (mounted && fen == _currentFen) {
-        setState(() => _variationLoading = false);
+    if (_engineMode.includesStockfish) {
+      try {
+        final review = cachedReview ?? await _stockfishForVariation(fen);
+        if (!mounted || fen != _currentFen) return;
+        setState(() => _variationReview = review);
+        _refineSelected(fen);
+      } on AnalysisCancelled {
+        return;
+      } catch (error, stackTrace) {
+        if (mounted && fen == _currentFen) {
+          setState(() => _variationError = _ReviewAnalysisStatus.failed);
+        }
+        unawaited(
+          AppDiagnostics.record('stockfish-variation', error, stackTrace),
+        );
+      } finally {
+        if (mounted && fen == _currentFen) {
+          setState(() => _variationLoading = false);
+        }
       }
     }
     if (!mounted ||
         !_foreground ||
         !_engineEnabled ||
+        !_engineMode.includesMaia ||
         fen != _currentFen ||
         !_inVariation ||
         generation != _maiaContextGeneration ||
@@ -1584,7 +1608,9 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   Future<void> _analyzePosition(int ply) async {
-    if (!_engineEnabled || !_foreground) return;
+    if (!_engineEnabled || !_foreground || !_engineMode.includesStockfish) {
+      return;
+    }
     if (_reviews.containsKey(ply)) return;
     final pending = _pendingAnalyses[ply];
     if (pending != null) return pending;
@@ -1841,6 +1867,7 @@ class _ReviewPageState extends State<ReviewPage>
       _inVariation ? _secondVariationMaiaAnalysis : _secondMaiaAnalyses[_ply];
 
   Map<String, List<Color>> get _maiaMoveColors {
+    if (!_engineMode.includesMaia) return const {};
     final result = <String, List<Color>>{};
     void add(MaiaPositionAnalysis? analysis, Color color) {
       final move = analysis?.topMove;
@@ -1877,6 +1904,7 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   List<String> get _stockfishMoves {
+    if (!_engineMode.includesStockfish) return const [];
     final review = _review;
     if (review == null) return const [];
     final valid = RegExp(r'^[a-h][1-8][a-h][1-8][qrbn]?$');
@@ -1896,6 +1924,7 @@ class _ReviewPageState extends State<ReviewPage>
   }
 
   List<ReviewAgreementArrow> get _agreementArrows {
+    if (!_engineEnabled) return const [];
     const stockfishColors = [Color(0xff3d9be9), Color(0xff8ac8f5)];
     final stockfishMoves = _stockfishMoves;
     final agreements = <ReviewAgreementArrow>[];
@@ -2270,51 +2299,58 @@ class _ReviewPageState extends State<ReviewPage>
                       : l10n(context).unavailable
                 : _sanForUci(_currentFen, move),
           );
-    return Container(
-      key: const ValueKey('analysis-engine-lines'),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var index = 0; index < 2; index++)
-            engineRow(
-              key: ValueKey('stockfish-line-${index + 1}'),
-              label: index < stockfishLines.length
-                  ? _formatLineEvaluation(stockfishLines[index])
-                  : 'SF${index + 1}',
-              color: chessTextColor(context, const Color(0xff72b7ee)),
-              text:
-                  (error == null ? null : l10n(context).analysisFailed) ??
-                  (index < stockfishLines.length
-                      ? _pvSan(stockfishLines[index])
-                      : loading
-                      ? l10n(context).analyzing
-                      : '—'),
-            ),
-          maiaRow(
-            analysis: maiaAnalysis,
-            move: maiaMove,
-            loading: maiaLoading,
-            elo: widget.maiaElo,
-            color: chessTextColor(context, primaryMaiaAnalysisColor),
-            lineKey: const ValueKey('maia-engine-line'),
-            otherKey: const ValueKey('maia-other'),
-          ),
-          if (widget.secondMaiaElo case final elo?)
-            maiaRow(
-              analysis: secondMaiaAnalysis,
-              move: secondMaiaMove,
-              loading: secondMaiaLoading,
-              elo: elo,
-              color: chessTextColor(context, secondaryMaiaAnalysisColor),
-              lineKey: const ValueKey('second-maia-engine-line'),
-              otherKey: const ValueKey('second-maia-other'),
-            ),
-        ],
+    return InkWell(
+      onLongPress: _showEngineSelectionDialog,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        key: const ValueKey('analysis-engine-lines'),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_engineMode.includesStockfish)
+              for (var index = 0; index < 2; index++)
+                engineRow(
+                  key: ValueKey('stockfish-line-${index + 1}'),
+                  label: index < stockfishLines.length
+                      ? _formatLineEvaluation(stockfishLines[index])
+                      : 'SF${index + 1}',
+                  color: chessTextColor(context, const Color(0xff72b7ee)),
+                  text:
+                      (error == null ? null : l10n(context).analysisFailed) ??
+                      (index < stockfishLines.length
+                          ? _pvSan(stockfishLines[index])
+                          : loading
+                          ? l10n(context).analyzing
+                          : '—'),
+                ),
+            if (_engineMode.includesMaia) ...[
+              maiaRow(
+                analysis: maiaAnalysis,
+                move: maiaMove,
+                loading: maiaLoading,
+                elo: widget.maiaElo,
+                color: chessTextColor(context, primaryMaiaAnalysisColor),
+                lineKey: const ValueKey('maia-engine-line'),
+                otherKey: const ValueKey('maia-other'),
+              ),
+              if (widget.secondMaiaElo case final elo?)
+                maiaRow(
+                  analysis: secondMaiaAnalysis,
+                  move: secondMaiaMove,
+                  loading: secondMaiaLoading,
+                  elo: elo,
+                  color: chessTextColor(context, secondaryMaiaAnalysisColor),
+                  lineKey: const ValueKey('second-maia-engine-line'),
+                  otherKey: const ValueKey('second-maia-other'),
+                ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -2980,15 +3016,99 @@ class _ReviewPageState extends State<ReviewPage>
     }
   }
 
-  bool get _hasAnalysisMenu =>
-      widget.onClearMoves != null ||
-      widget.onEditBoard != null ||
-      widget.onPlayFromPosition != null ||
-      widget.onPlayFromHistory != null;
+  bool get _hasAnalysisMenu => true;
 
   void _flipAnalysisBoard() {
     setState(() => _flipped = !_flipped);
     _notifySessionChanged();
+  }
+
+  Future<void> _loadEngineMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(analysisEngineModePreferenceKey);
+    if (saved != null) {
+      final mode = AnalysisEngineMode.decode(saved);
+      if (mounted && mode != _engineMode) {
+        setState(() => _engineMode = mode);
+        if (_engineEnabled) {
+          if (_inVariation) {
+            unawaited(_analyzeVariation());
+          } else {
+            if (mode.includesStockfish) unawaited(_analyzePosition(_ply));
+            if (mode.includesMaia) {
+              unawaited(_analyzeConfiguredMaiaPosition(_ply));
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _setEngineMode(AnalysisEngineMode mode) async {
+    if (_engineMode == mode) return;
+    setState(() {
+      _engineMode = mode;
+      if (!mode.includesStockfish) {
+        _stockfish.cancel(_stockfishScope);
+        _refinementTimer?.cancel();
+        _variationReview = null;
+        if (_showGraph) _showGraph = false;
+      }
+    });
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(analysisEngineModePreferenceKey, mode.name);
+    if (_engineEnabled) {
+      if (_inVariation) {
+        unawaited(_analyzeVariation());
+      } else {
+        if (mode.includesStockfish) unawaited(_analyzePosition(_ply));
+        if (mode.includesMaia) unawaited(_analyzeConfiguredMaiaPosition(_ply));
+      }
+    }
+  }
+
+  Future<void> _showEngineSelectionDialog() async {
+    final selected = await showModalBottomSheet<AnalysisEngineMode>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: Text(
+                  'Analysis engines',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              for (final mode in AnalysisEngineMode.values)
+                RadioListTile<AnalysisEngineMode>(
+                  key: ValueKey('engine-mode-${mode.name}'),
+                  value: mode,
+                  groupValue: _engineMode,
+                  title: Text(mode.label),
+                  subtitle: Text(mode.description),
+                  onChanged: (val) {
+                    if (val != null) {
+                      Navigator.pop(context, val);
+                    }
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      await _setEngineMode(selected);
+    }
   }
 
   void _toggleAnalysisEngine() {
@@ -3023,8 +3143,10 @@ class _ReviewPageState extends State<ReviewPage>
     if (_inVariation) {
       unawaited(_analyzeVariation());
     } else {
-      unawaited(_analyzePosition(_ply));
-      unawaited(_analyzeConfiguredMaiaPosition(_ply));
+      if (_engineMode.includesStockfish) unawaited(_analyzePosition(_ply));
+      if (_engineMode.includesMaia) {
+        unawaited(_analyzeConfiguredMaiaPosition(_ply));
+      }
     }
   }
 
@@ -3076,6 +3198,13 @@ class _ReviewPageState extends State<ReviewPage>
                   title: Text(l10n(context).continueFromHere),
                   onTap: () => Navigator.pop(context, 'continue'),
                 ),
+              ListTile(
+                key: const ValueKey('analysis-menu-engines'),
+                leading: const Icon(Icons.tune),
+                title: const Text('Analysis engines'),
+                subtitle: Text(_engineMode.label),
+                onTap: () => Navigator.pop(context, 'engines'),
+              ),
             ],
           ),
         ),
@@ -3083,6 +3212,8 @@ class _ReviewPageState extends State<ReviewPage>
     );
     if (!mounted || action == null) return;
     switch (action) {
+      case 'engines':
+        await _showEngineSelectionDialog();
       case 'fen':
         await widget.onLoadFen?.call();
       case 'pgn':
@@ -3149,11 +3280,12 @@ class _ReviewPageState extends State<ReviewPage>
         ),
         Tooltip(
           message: (_engineEnabled
-              ? l10n(context).turnEngineOff
+              ? '${_engineMode.label} (${l10n(context).turnEngineOff})'
               : l10n(context).turnEngineOn),
           child: TextButton(
             key: const ValueKey('analysis-engine-toggle'),
             onPressed: _toggleAnalysisEngine,
+            onLongPress: _showEngineSelectionDialog,
             style: TextButton.styleFrom(
               minimumSize: const Size(56, 48),
               padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -3170,7 +3302,7 @@ class _ReviewPageState extends State<ReviewPage>
                 ),
                 const SizedBox(width: 2),
                 Text(
-                  'SF',
+                  _engineMode == AnalysisEngineMode.maiaOnly ? 'M' : 'SF',
                   maxLines: 1,
                   softWrap: false,
                   style: TextStyle(
@@ -3478,8 +3610,10 @@ class _ReviewPageState extends State<ReviewPage>
                 max(24.0, MediaQuery.textScalerOf(context).scale(24)) + 8;
             final maiaRowCount = widget.secondMaiaElo == null ? 1 : 2;
             final engineHeight = _engineEnabled
-                ? 2 * max(26.0, 22.0 * textScale) +
-                      maiaRowCount * max(26.0, 22.0 * textScale) +
+                ? (_engineMode.includesStockfish ? 2 : 0) *
+                          max(26.0, 22.0 * textScale) +
+                      (_engineMode.includesMaia ? maiaRowCount : 0) *
+                          max(26.0, 22.0 * textScale) +
                       20
                 : 0.0;
             Widget board(double size) => SizedBox(
@@ -3527,7 +3661,7 @@ class _ReviewPageState extends State<ReviewPage>
                   EvaluationBar(
                     evaluation: evaluation,
                     mate: mate,
-                    enabled: _engineEnabled,
+                    enabled: _engineEnabled && _engineMode.includesStockfish,
                     orientation: boardOrientation,
                   ),
                 ],

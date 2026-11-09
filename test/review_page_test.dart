@@ -896,6 +896,50 @@ void main() {
     expect(find.text('Second Maia analysis rating: 2200'), findsOneWidget);
   });
 
+  testWidgets('analysis engine mode setting persists across app restarts', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.pumpWidget(const MaiaChessApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-settings-button')));
+    await tester.pumpAndSettle();
+
+    final dropdown = find.byKey(
+      const ValueKey('analysis-engine-mode-both'),
+    );
+    await tester.ensureVisible(dropdown);
+    expect(dropdown, findsOneWidget);
+
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey('engine-mode-option-maiaOnly')).last,
+      warnIfMissed: false,
+    );
+    await tester.pumpAndSettle();
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(
+      preferences.getString(analysisEngineModePreferenceKey),
+      'maiaOnly',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await tester.pumpWidget(const MaiaChessApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('home-settings-button')));
+    await tester.pumpAndSettle();
+
+    final updatedDropdown = find.byKey(
+      const ValueKey('analysis-engine-mode-maiaOnly'),
+    );
+    await tester.ensureVisible(updatedDropdown);
+    expect(updatedDropdown, findsOneWidget);
+  });
+
   final invalidEnginePreferences = <String, Object>{
     maiaPlayEloPreferenceKey: '1500',
     maiaPlaySidePreferenceKey: 1,
@@ -912,6 +956,7 @@ void main() {
     secondMaiaEnabledPreferenceKey: 'true',
     secondMaiaEloPreferenceKey: 400,
     gameAnalysisQualityPreferenceKey: 'unsupported',
+    analysisEngineModePreferenceKey: 'unsupported',
     gameSoundsPreferenceKey: 'false',
     gameHapticsPreferenceKey: 1,
     'chessnutBoardSounds': 'true',
@@ -3548,4 +3593,80 @@ void main() {
     expect(whiteMaterial.top, greaterThanOrEqualTo(board.bottom));
     expect(find.text('+3'), findsOneWidget);
   });
+
+  testWidgets(
+    'analysis engine mode switches between both, maiaOnly, and stockfishOnly',
+    (tester) async {
+      final policy = List<double>.filled(4352, 0);
+      policy[MaiaEncoding.moveIndex('e2e4', false)] = 10;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReviewPage(
+            positions: const [chess.Chess.DEFAULT_POSITION],
+            uciMoves: const [],
+            sanMoves: const [],
+            playerIsWhite: true,
+            pgn: '*',
+            onHome: () {},
+            evaluator: (_) async => const StockfishReview(25, 'e2e4'),
+            maiaPolicyEvaluator: (_, _) async => policy,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Default is both engines enabled
+      expect(find.byKey(const ValueKey('stockfish-line-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('maia-engine-line')), findsOneWidget);
+      expect(find.text('SF'), findsOneWidget);
+      expect(
+        tester.widget<EvaluationBar>(find.byType(EvaluationBar)).enabled,
+        isTrue,
+      );
+
+      // Long press engine toggle to open engine selection modal bottom sheet
+      await tester.longPress(find.byKey(const ValueKey('analysis-engine-toggle')));
+      await tester.pumpAndSettle();
+      expect(find.text('Analysis engines'), findsOneWidget);
+
+      // Select Maia only
+      await tester.tap(find.byKey(const ValueKey('engine-mode-maiaOnly')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('stockfish-line-1')), findsNothing);
+      expect(find.byKey(const ValueKey('maia-engine-line')), findsOneWidget);
+      expect(find.text('M'), findsOneWidget);
+      expect(
+        tester.widget<EvaluationBar>(find.byType(EvaluationBar)).enabled,
+        isFalse,
+      );
+
+      // Open engine selection again from analysis actions menu
+      await tester.tap(find.byKey(const ValueKey('analysis-actions-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('analysis-menu-engines')));
+      await tester.pumpAndSettle();
+
+      // Select Stockfish only
+      await tester.tap(find.byKey(const ValueKey('engine-mode-stockfishOnly')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('stockfish-line-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('maia-engine-line')), findsNothing);
+      expect(find.text('SF'), findsOneWidget);
+      expect(
+        tester.widget<EvaluationBar>(find.byType(EvaluationBar)).enabled,
+        isTrue,
+      );
+
+      // Restore both
+      await tester.longPress(find.byKey(const ValueKey('analysis-engine-toggle')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('engine-mode-both')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('stockfish-line-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('maia-engine-line')), findsOneWidget);
+    },
+  );
 }

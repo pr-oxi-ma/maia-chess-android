@@ -172,3 +172,42 @@ class RecordedVariation {
     );
   }
 }
+
+const analysisEngineModePreferenceKey = 'analysisEngineModeV1';
+
+enum AnalysisEngineMode {
+  both,
+  maiaOnly,
+  stockfishOnly;
+
+  bool get includesMaia => this == both || this == maiaOnly;
+  bool get includesStockfish => this == both || this == stockfishOnly;
+
+  String get label => switch (this) {
+    AnalysisEngineMode.both => 'Maia & Stockfish',
+    AnalysisEngineMode.maiaOnly => 'Maia only',
+    AnalysisEngineMode.stockfishOnly => 'Stockfish only',
+  };
+
+  String get description => switch (this) {
+    AnalysisEngineMode.both =>
+      'Compare human-like choices with Stockfish evaluation',
+    AnalysisEngineMode.maiaOnly =>
+      'Human move prediction only (pauses Stockfish to save battery and CPU)',
+    AnalysisEngineMode.stockfishOnly =>
+      'Deep engine evaluation and lines only (pauses neural network inference)',
+  };
+
+  static AnalysisEngineMode? tryDecode(Object? value) {
+    if (value is String) {
+      for (final mode in AnalysisEngineMode.values) {
+        if (mode.name == value) return mode;
+      }
+    }
+    return null;
+  }
+
+  static AnalysisEngineMode decode(Object? value) =>
+      tryDecode(value) ?? AnalysisEngineMode.both;
+}
+

@@ -536,6 +536,7 @@ class AnalysisBoardPage extends StatefulWidget {
     required this.initialSession,
     required this.maiaElo,
     this.secondMaiaElo,
+    this.initialEngineMode,
     this.useMoveHistory = false,
     this.historyPrefix = const [],
     this.initialVariations = const [],
@@ -554,6 +555,7 @@ class AnalysisBoardPage extends StatefulWidget {
   final AnalysisSession initialSession;
   final int maiaElo;
   final int? secondMaiaElo;
+  final AnalysisEngineMode? initialEngineMode;
   final bool useMoveHistory;
   final List<String> historyPrefix;
   final List<RecordedVariation> initialVariations;
@@ -790,6 +792,7 @@ class _AnalysisBoardPageState extends State<AnalysisBoardPage> {
         _revision == 0 && widget.initialTreeIsAuthoritative,
     initialCurrentFen: _initialCurrentFen,
     initialFlipped: _initialFlipped,
+    initialEngineMode: widget.initialEngineMode,
     gameAnalysisQuality: widget.gameAnalysisQuality,
     onSessionChanged: _saveAnalysisState,
     maiaElo: widget.maiaElo,

@@ -151,6 +151,7 @@ class _GamePageState extends State<GamePage>
   int _analysisElo = defaultMaiaAnalysisElo;
   bool _secondMaiaEnabled = false;
   int _secondMaiaElo = defaultSecondMaiaElo;
+  AnalysisEngineMode _analysisEngineMode = AnalysisEngineMode.both;
   GameAnalysisQuality _gameAnalysisQuality = GameAnalysisQuality.fast;
   late final cg.ChessboardController _gameBoardController;
   _PlayMessage _status = _PlayMessage.chooseSettings;
@@ -510,6 +511,7 @@ class _GamePageState extends State<GamePage>
                           : _decodeMaiaRating(saved['secondMaiaElo']) ??
                                 _secondMaiaElo)
                     : (_secondMaiaEnabled ? _secondMaiaElo : null),
+                initialEngineMode: _analysisEngineMode,
                 gameAnalysisQuality: _gameAnalysisQuality,
                 initialVariations: variations,
                 initialTreeIsAuthoritative:
@@ -586,6 +588,7 @@ class _GamePageState extends State<GamePage>
                               : _decodeMaiaRating(saved['secondMaiaElo']) ??
                                     _secondMaiaElo)
                         : (_secondMaiaEnabled ? _secondMaiaElo : null),
+                    initialEngineMode: _analysisEngineMode,
                     gameAnalysisQuality: _gameAnalysisQuality,
                     initialCurrentFen: saved['currentFen'] as String?,
                     initialFlipped: saved['flipped'] as bool? ?? false,
@@ -1162,6 +1165,12 @@ class _GamePageState extends State<GamePage>
                 .firstOrNull
           : null,
     );
+    final analysisEngineMode = _readValidatedPreference<AnalysisEngineMode>(
+      preferences,
+      analysisEngineModePreferenceKey,
+      fallback: AnalysisEngineMode.both,
+      decode: AnalysisEngineMode.tryDecode,
+    );
     final gameSoundsEnabled = _readValidatedPreference<bool>(
       preferences,
       gameSoundsPreferenceKey,
@@ -1209,6 +1218,7 @@ class _GamePageState extends State<GamePage>
       _analysisElo = analysisElo;
       _secondMaiaEnabled = secondMaiaEnabled;
       _secondMaiaElo = secondMaiaElo;
+      _analysisEngineMode = analysisEngineMode;
       _gameAnalysisQuality = gameAnalysisQuality;
       _gameSoundsEnabled = gameSoundsEnabled;
       _gameHapticsEnabled = gameHapticsEnabled;
@@ -1270,6 +1280,10 @@ class _GamePageState extends State<GamePage>
       preferences.setString(
         gameAnalysisQualityPreferenceKey,
         _gameAnalysisQuality.name,
+      ),
+      preferences.setString(
+        analysisEngineModePreferenceKey,
+        _analysisEngineMode.name,
       ),
       preferences.setBool(gameSoundsPreferenceKey, _gameSoundsEnabled),
       preferences.setBool(gameHapticsPreferenceKey, _gameHapticsEnabled),
@@ -1350,6 +1364,7 @@ class _GamePageState extends State<GamePage>
       _analysisElo = defaultMaiaAnalysisElo;
       _secondMaiaEnabled = false;
       _secondMaiaElo = defaultSecondMaiaElo;
+      _analysisEngineMode = AnalysisEngineMode.both;
       _gameAnalysisQuality = GameAnalysisQuality.fast;
       _gameSoundsEnabled = false;
       _gameHapticsEnabled = true;
@@ -1718,6 +1733,7 @@ class _GamePageState extends State<GamePage>
             useMoveHistory: _useMoveHistory,
             maiaElo: _analysisElo,
             secondMaiaElo: _secondMaiaEnabled ? _secondMaiaElo : null,
+            initialEngineMode: _analysisEngineMode,
             gameAnalysisQuality: _gameAnalysisQuality,
             maiaPolicyEvaluator: widget.maiaEvaluator,
           ),
@@ -1751,6 +1767,7 @@ class _GamePageState extends State<GamePage>
           useMoveHistory: _useMoveHistory,
           maiaElo: _analysisElo,
           secondMaiaElo: _secondMaiaEnabled ? _secondMaiaElo : null,
+          initialEngineMode: _analysisEngineMode,
           gameAnalysisQuality: _gameAnalysisQuality,
           maiaPolicyEvaluator: widget.maiaEvaluator,
         ),
@@ -4202,6 +4219,7 @@ class _GamePageState extends State<GamePage>
           initialVariations: initialVariations,
           maiaElo: _analysisElo,
           secondMaiaElo: _secondMaiaEnabled ? _secondMaiaElo : null,
+          initialEngineMode: _analysisEngineMode,
           gameAnalysisQuality: _gameAnalysisQuality,
           initialCurrentFen: session.positions.last,
           title: l10n(context).analysisBoard,
@@ -5262,6 +5280,60 @@ class _GamePageState extends State<GamePage>
                       ),
                     ),
                   const MaiaScoreSetting(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text('Active analysis engines'),
+                        const SizedBox(height: 8),
+                        Semantics(
+                          label: 'Active analysis engines',
+                          child: DropdownButtonFormField<AnalysisEngineMode>(
+                            key: ValueKey(
+                              'analysis-engine-mode-${_analysisEngineMode.name}',
+                            ),
+                            isExpanded: true,
+                            itemHeight: null,
+                            isDense: false,
+                            initialValue: _analysisEngineMode,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
+                            ),
+                            items: AnalysisEngineMode.values
+                                .map(
+                                  (mode) => DropdownMenuItem(
+                                    key: ValueKey(
+                                      'engine-mode-option-${mode.name}',
+                                    ),
+                                    value: mode,
+                                    child: Text(mode.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) {
+                              if (value == null) return;
+                              setState(() => _analysisEngineMode = value);
+                              unawaited(_saveEnginePreferences());
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _analysisEngineMode.description,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                     child: Column(
