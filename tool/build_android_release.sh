@@ -15,7 +15,7 @@ python3 tool/verify_gradle_wrapper.py
 # Check both the committed source and local metadata before an expensive build.
 python3 tool/check_release_source.py --ref HEAD
 python3 tool/check_release_source.py
-python3 tool/verify_model.py assets/models/maia3-79m.onnx
+python3 tool/verify_model.py assets/models/maia3-5m.onnx
 
 # A fixed source timestamp and locked dependencies keep independent release
 # builds reproducible. Dart obfuscation is deliberately not enabled: its

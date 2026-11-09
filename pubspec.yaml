@@ -78,7 +78,7 @@ flutter:
     - LICENSE
     - THIRD_PARTY_NOTICES.md
     - third_party/chessground/notices/
-    - assets/models/maia3-79m.onnx
+    - assets/models/maia3-5m.onnx
     - assets/openings/lichess_openings.tsv
     - assets/openings/LICHESS_OPENINGS_CC0.txt
     - assets/sounds/standard/

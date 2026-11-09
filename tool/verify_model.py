@@ -4,8 +4,8 @@ import argparse
 import hashlib
 from pathlib import Path
 
-MODEL_SIZE = 316_034_244
-MODEL_SHA256 = '3454b03ae78baa64a87b345fdb1a457265d912caec531039b074f07eda0d8010'
+MODEL_SIZE = 21_346_652
+MODEL_SHA256 = 'ddae2aa893b5ca7ec94d24178871f1c337d09fd72ff38abe8d76b8ecf08cb942'
 
 
 def verify(path: Path) -> None:
@@ -22,7 +22,7 @@ def verify(path: Path) -> None:
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('path', nargs='?', type=Path,
-                        default=Path(__file__).resolve().parents[1] / 'assets/models/maia3-79m.onnx')
+                        default=Path(__file__).resolve().parents[1] / 'assets/models/maia3-5m.onnx')
     try:
         verify(parser.parse_args().path)
     except ValueError as error:

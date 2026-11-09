@@ -11,7 +11,7 @@ from release_common import (apk_identity, digest, file_digest, require, run,
 from verify_model import MODEL_SHA256, MODEL_SIZE
 
 REPO = Path(__file__).resolve().parents[1]
-MODEL_ENTRY = 'assets/flutter_assets/assets/models/maia3-79m.onnx'
+MODEL_ENTRY = 'assets/flutter_assets/assets/models/maia3-5m.onnx'
 ABI_ELF = {
     'armeabi-v7a': (1, 40),
     'arm64-v8a': (2, 183),

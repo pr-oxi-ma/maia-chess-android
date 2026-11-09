@@ -1,0 +1,96 @@
+name: Build Light 5M APK
+
+on:
+  push:
+    branches: [main, build-5m-apk]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Signed 5M APKs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Flutter (pinned 3.47.8)
+        run: |
+          git clone --depth 1 --branch 3.47.8 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Verify 5M Model Integrity
+        run: python3 tool/verify_model.py assets/models/maia3-5m.onnx
+
+      - name: Generate Ad-hoc Release Signing Keystore
+        run: |
+          keytool -genkey -v -keystore "$RUNNER_TEMP/release.keystore" \
+            -alias "mobile-maia" \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "android" -keypass "android" \
+            -dname "CN=Mobile Maia 5M, OU=Mobile, O=Chess, L=OpenSource, S=Global, C=US"
+          echo "MOBILE_MAIA_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          echo "MOBILE_MAIA_STORE_PASSWORD=android" >> "$GITHUB_ENV"
+          echo "MOBILE_MAIA_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+
+      - name: Get Flutter dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Configure Release Stockfish
+        run: |
+          flutter build apk --release --config-only
+          python3 tool/prepare_reproducible_stockfish.py --package-config .dart_tool/package_config.json
+
+      - name: Build Split APKs (arm64-v8a and armeabi-v7a)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Collect Split APKs
+        run: |
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Mobile-Maia-5M-arm64-v8a.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/Mobile-Maia-5M-armeabi-v7a.apk
+
+      - name: Build Universal APK
+        run: flutter build apk --release
+
+      - name: Collect Universal APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Mobile-Maia-5M-universal.apk
+
+      - name: Generate Checksums
+        run: |
+          cd dist
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload APKs as Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-maia-5m-apks
+          path: dist/*
+
+      - name: Publish GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete v2.5.1-5m-light --yes || true
+          gh release create v2.5.1-5m-light dist/* \
+            --title "Mobile Maia 5M Lightweight Build (v2.5.1)" \
+            --notes "### Lightweight Mobile Maia (Maia-3 5M Model)
+
+          This build replaces the heavy 316 MB 79M model with the ~21 MB **Maia-3 5M** model, dramatically reducing the download size for mobile devices.
+
+          #### Available APKs:
+          - **[Mobile-Maia-5M-arm64-v8a.apk](https://github.com/${{ github.repository }}/releases/download/v2.5.1-5m-light/Mobile-Maia-5M-arm64-v8a.apk)**: Recommended for almost all modern Android phones (~78 MB).
+          - **[Mobile-Maia-5M-armeabi-v7a.apk](https://github.com/${{ github.repository }}/releases/download/v2.5.1-5m-light/Mobile-Maia-5M-armeabi-v7a.apk)**: For older 32-bit ARM phones (~70 MB).
+          - **[Mobile-Maia-5M-universal.apk](https://github.com/${{ github.repository }}/releases/download/v2.5.1-5m-light/Mobile-Maia-5M-universal.apk)**: Universal APK supporting all CPU architectures (~110 MB).
+
+          All APKs are signed and ready to install directly on your phone."

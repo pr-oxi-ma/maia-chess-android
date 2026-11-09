@@ -48,10 +48,10 @@ android {
         // The shared native transport gates experimental boards on this value.
         buildConfigField("String", "FLAVOR", "\"stable\"")
         buildConfigField("String", "MAIA_RUNTIME_VERSION", "\"$maiaRuntimeVersion\"")
-        buildConfigField("String", "MAIA_MODEL_ASSET", "\"flutter_assets/assets/models/maia3-79m.onnx\"")
-        buildConfigField("String", "MAIA_MODEL_FILE", "\"maia3-79m-3454b03a-sha256.onnx\"")
-        buildConfigField("long", "MAIA_MODEL_BYTES", "316034244L")
-        buildConfigField("String", "MAIA_MODEL_SHA256", "\"3454b03ae78baa64a87b345fdb1a457265d912caec531039b074f07eda0d8010\"")
+        buildConfigField("String", "MAIA_MODEL_ASSET", "\"flutter_assets/assets/models/maia3-5m.onnx\"")
+        buildConfigField("String", "MAIA_MODEL_FILE", "\"maia3-5m-ddae2aa8-sha256.onnx\"")
+        buildConfigField("long", "MAIA_MODEL_BYTES", "21346652L")
+        buildConfigField("String", "MAIA_MODEL_SHA256", "\"ddae2aa893b5ca7ec94d24178871f1c337d09fd72ff38abe8d76b8ecf08cb942\"")
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -107,11 +107,11 @@ flutter {
 // Fail before Flutter copies assets: GitHub ZIP downloads and incomplete LFS
 // clones otherwise produce an installable APK with a tiny text pointer as Maia.
 val verifyMaiaModel by tasks.registering {
-    val model = rootProject.file("../assets/models/maia3-79m.onnx")
+    val model = rootProject.file("../assets/models/maia3-5m.onnx")
     inputs.file(model)
     doLast {
-        require(model.isFile && model.length() == 316_034_244L) {
-            "Maia model missing or wrong size. Run git lfs install && git lfs pull."
+        require(model.isFile && model.length() == 21_346_652L) {
+            "Maia model missing or wrong size. Expected 21,346,652 bytes for Maia 5M."
         }
         val digest = MessageDigest.getInstance("SHA-256")
         model.inputStream().buffered().use { stream ->
@@ -123,8 +123,8 @@ val verifyMaiaModel by tasks.registering {
             }
         }
         val sha256 = digest.digest().joinToString("") { "%02x".format(it) }
-        require(sha256 == "3454b03ae78baa64a87b345fdb1a457265d912caec531039b074f07eda0d8010") {
-            "Maia model SHA-256 mismatch. Restore the pinned Git LFS object."
+        require(sha256 == "ddae2aa893b5ca7ec94d24178871f1c337d09fd72ff38abe8d76b8ecf08cb942") {
+            "Maia model SHA-256 mismatch."
         }
     }
 }
